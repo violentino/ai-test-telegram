@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Store</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: var(--tg-theme-bg-color, #111); color: var(--tg-theme-text-color, #fff); }
+    header { padding: 12px 16px; font-weight: 600; }
+    .filters { display: flex; gap: 8px; padding: 0 16px 12px; }
+    select, button { padding: 8px; border-radius: 8px; border: 1px solid #444; background: #1c1c1c; color: #fff; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 0 16px 80px; }
+    .card { background: #171717; border: 1px solid #333; border-radius: 12px; overflow: hidden; }
+    .card img { width: 100%; height: 120px; object-fit: cover; display: block; }
+    .card .info { padding: 8px; }
+    .cart { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); display: flex; gap: 8px; }
+    .cart button { flex: 1; }
+  </style>
+</head>
+<body>
+  <header>Clothing Store</header>
+  <div class="filters">
+    <select id="category">
+      <option value="">All categories</option>
+      <option value="shoes">Shoes</option>
+      <option value="sneakers">Sneakers</option>
+      <option value="tshirts">T-shirts</option>
+    </select>
+    <select id="gender">
+      <option value="">All</option>
+      <option value="men">Men</option>
+      <option value="women">Women</option>
+      <option value="kids">Children</option>
+    </select>
+    <select id="size">
+      <option value="">Size</option>
+      <option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option>
+      <option>38</option><option>39</option><option>40</option><option>41</option><option>42</option><option>43</option>
+    </select>
+    <select id="color">
+      <option value="">Color</option>
+      <option>black</option><option>white</option><option>blue</option><option>red</option>
+    </select>
+  </div>
+  <div class="grid" id="grid"></div>
+
+  <div class="cart">
+    <select id="shipping" style="flex:1">
+      <option value="pickup">Self-pickup</option>
+      <option value="delivery">Delivery</option>
+    </select>
+    <input id="address" placeholder="Address (if delivery)" style="flex:2; padding:8px; border-radius:8px; border:1px solid #444; background:#1c1c1c; color:#fff;" />
+    <button id="checkoutCard">Pay by card</button>
+    <button id="checkoutTon">Pay by TON</button>
+  </div>
+
+<script>
+const tg = window.Telegram.WebApp;
+if (tg) { tg.expand(); }
+
+const grid = document.getElementById('grid');
+const category = document.getElementById('category');
+const gender = document.getElementById('gender');
+const size = document.getElementById('size');
+const color = document.getElementById('color');
+
+let products = [];
+let cart = [];
+
+function render() {
+  const cat = category.value; const gen = gender.value; const siz = size.value; const col = color.value;
+  grid.innerHTML = '';
+  products.filter(p => (!cat || p.category === cat) && (!gen || p.gender === gen) && (!siz || p.sizes.includes(siz)) && (!col || p.colors.includes(col)))
+    .forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.innerHTML = `
+        <img src="${p.images[0]}" alt="${p.name}">
+        <div class="info">
+          <div style="font-weight:600;">${p.name}</div>
+          <div style="opacity:.8; font-size:12px;">${p.description}</div>
+          <div style="margin:6px 0;">${p.price} ${p.currency}</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;">
+            <select class="size">${p.sizes.map(s=>`<option>${s}</option>`).join('')}</select>
+            <select class="color">${p.colors.map(c=>`<option>${c}</option>`).join('')}</select>
+            <button class="add">Add</button>
+          </div>
+        </div>`;
+      el.querySelector('.add').onclick = async () => {
+        const variant = { size: el.querySelector('.size').value, color: el.querySelector('.color').value };
+        cart.push({ productId: p.id, name: p.name, price: p.price, currency: p.currency, quantity: 1, variant });
+        try {
+          await fetch('/api/cart', { method: 'POST', headers: headers(), body: JSON.stringify({ productId: p.id, quantity: 1, variant })});
+        } catch {}
+        tg?.showPopup && tg.showPopup({ title: 'Added', message: `${p.name} added to cart`, buttons: [{type:'close'}] });
+      };
+      grid.appendChild(el);
+    });
+}
+
+function headers(){
+  const h = { 'Content-Type': 'application/json' };
+  if (tg?.initData) h['X-Telegram-Init-Data'] = tg.initData;
+  return h;
+}
+
+async function load() {
+  const res = await fetch('/api/catalog');
+  const json = await res.json();
+  products = json.items || [];
+  render();
+}
+
+category.onchange = gender.onchange = size.onchange = color.onchange = render;
+
+async function checkout(method) {
+  const shipping = document.getElementById('shipping').value;
+  const address = document.getElementById('address').value;
+  const res = await fetch('/api/checkout', { method: 'POST', headers: headers(), body: JSON.stringify({ paymentMethod: method, shippingMethod: shipping, shippingAddress: address || null })});
+  const data = await res.json();
+  if (method === 'card' && data.checkoutUrl) {
+    window.open(data.checkoutUrl, '_blank');
+  } else if (method === 'ton' && data.ton) {
+    const ton = data.ton;
+    const url = `https://tonhub.com/transfer/${ton.to}?amount=${Math.round(parseFloat(ton.amountTon)*1e9)}&text=${encodeURIComponent(ton.message)}`;
+    window.open(url, '_blank');
+  }
+}
+
+document.getElementById('checkoutCard').onclick = () => checkout('card');
+document.getElementById('checkoutTon').onclick = () => checkout('ton');
+
+load();
+</script>
+</body>
+</html>
