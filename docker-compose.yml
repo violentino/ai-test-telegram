@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  # NOTE: Сначала сгенерируйте Laravel (см. docs/setup.md), затем добавьте его сервис сюда.
+  analysis-service:
+    build: ./analysis-service
+    container_name: analysis-service
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # Пример секций для БД/кэша/laravel будет добавлен после bootstrap Laravel (Sail создает свой compose)
+
